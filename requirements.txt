@@ -1,0 +1,14 @@
+FastAPI
+XGBoost
+pandas
+numpy
+scikit-learn
+sqlalchemy
+psycopg2-binary
+aiohttp
+optuna
+shap
+joblib
+pydantic
+uvicorn
+# Other ML/data processing dependencies
