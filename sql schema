@@ -1,0 +1,73 @@
+CREATE TABLE flights (
+    flight_id VARCHAR(50) PRIMARY KEY,
+    airline_code VARCHAR(10),
+    aircraft_type VARCHAR(20),
+    
+    -- Scheduled vs Actual
+    scheduled_departure TIMESTAMP,
+    actual_departure TIMESTAMP,
+    scheduled_arrival TIMESTAMP,
+    actual_arrival TIMESTAMP,
+    
+    -- Derived: TARGET VARIABLE
+    departure_delay_minutes INT,  -- delay_class = CASE WHEN departure_delay_minutes > 15 THEN 1 ELSE 0 END
+    arrival_delay_minutes INT,
+    
+    -- Route Info
+    origin_airport VARCHAR(10),
+    destination_airport VARCHAR(10),
+    route_distance_km FLOAT,
+    
+    -- Aircraft Info
+    aircraft_tail_number VARCHAR(20),
+    aircraft_age_years FLOAT,
+    seat_capacity INT,
+    
+    -- Flight Info
+    flight_number VARCHAR(50),
+    day_of_week INT,
+    month INT,
+    is_holiday BOOLEAN,
+    
+    -- Delay Reason (when available)
+    delay_reason VARCHAR(100),
+    delay_category VARCHAR(50),  -- Weather, Maintenance, Crew, ATC, etc.
+    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE weather_data (
+    weather_id SERIAL PRIMARY KEY,
+    airport_code VARCHAR(10),
+    measurement_time TIMESTAMP,
+    temperature_celsius FLOAT,
+    visibility_km FLOAT,
+    wind_speed_kmh FLOAT,
+    wind_direction_deg FLOAT,
+    precipitation_mm FLOAT,
+    cloud_cover_percent INT,
+    storm_indicator BOOLEAN,
+    foreign key (airport_code) references flights(origin_airport)
+);
+
+CREATE TABLE airport_congestion (
+    congestion_id SERIAL PRIMARY KEY,
+    airport_code VARCHAR(10),
+    measurement_time TIMESTAMP,
+    flights_per_hour INT,
+    runway_capacity_utilization FLOAT,
+    avg_turnaround_time_minutes FLOAT,
+    total_aircraft_on_ground INT,
+    airport_traffic_index FLOAT  -- Normalized 0-1
+);
+
+CREATE TABLE aircraft_rotation (
+    rotation_id SERIAL PRIMARY KEY,
+    aircraft_tail_number VARCHAR(20),
+    flight_id VARCHAR(50),
+    previous_flight_id VARCHAR(50),
+    turnaround_time_minutes INT,
+    cumulative_daily_delay_minutes INT,
+    maintenance_required BOOLEAN,
+    foreign key (flight_id) references flights(flight_id)
+);
