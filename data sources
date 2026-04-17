@@ -1,0 +1,11 @@
+Primary Sources:
+  - Pakistan Aviation Authority (PAA): https://paa.gov.pk/flightSchedule
+  - FlightAware (PIA Fleet): https://www.flightaware.com/live/fleet/PIA
+  - Airnav Radar: https://www.airnavradar.com/data/airlines/PIA
+  - Kaggle Dataset: Pakistan Air Traffic 2020-2026
+  - FAA Air Traffic Database
+  - NOAA/OpenWeather APIs
+  - Airport Operational Data
+
+Data Collection Frequency: Real-time (5-minute intervals)
+Historical Data: 5+ years for pattern recognition
