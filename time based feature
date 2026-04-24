@@ -1,0 +1,37 @@
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+
+def create_time_features(df):
+    """
+    Create temporal features from departure timestamp
+    """
+    df['departure_hour'] = df['scheduled_departure'].dt.hour
+    df['departure_day_of_week'] = df['scheduled_departure'].dt.dayofweek  # 0=Monday, 6=Sunday
+    df['departure_month'] = df['scheduled_departure'].dt.month
+    df['is_weekend'] = df['departure_day_of_week'].isin([5, 6]).astype(int)
+    
+    # Peak hour indicator (6-9 AM, 12-1 PM, 5-7 PM are peak times)
+    df['is_peak_hour'] = df['departure_hour'].isin([6, 7, 8, 12, 17, 18]).astype(int)
+    
+    # Holiday indicator (manually define for Pakistan)
+    pakistan_holidays = [
+        pd.Timestamp('2024-02-05'),  # Kashmir Day
+        pd.Timestamp('2024-03-23'),  # Pakistan Day
+        pd.Timestamp('2024-08-14'),  # Independence Day
+        pd.Timestamp('2024-11-09'),  # Iqbal Day
+        pd.Timestamp('2024-12-25'),  # Quaid-e-Azam Day
+    ]
+    df['is_holiday'] = df['scheduled_departure'].dt.date.isin(
+        [h.date() for h in pakistan_holidays]
+    ).astype(int)
+    
+    # Quarter and week of year
+    df['quarter'] = df['scheduled_departure'].dt.quarter
+    df['week_of_year'] = df['scheduled_departure'].dt.isocalendar().week
+    
+    # Day of month (end-of-month rush)
+    df['day_of_month'] = df['scheduled_departure'].dt.day
+    df['is_end_of_month'] = (df['day_of_month'] >= 25).astype(int)
+    
+    return df
