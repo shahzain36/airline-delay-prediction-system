@@ -36,3 +36,173 @@ def create_time_features(df):
     df['is_end_of_month'] = (df['day_of_month'] >= 25).astype(int)
     
     return df
+#Airport Congestion Feature
+def create_congestion_features(df, airport_data):
+    """
+    Merge airport congestion metrics
+    """
+    # Merge airport traffic index
+    df = df.merge(
+        airport_data[['airport_code', 'measurement_time', 'airport_traffic_index']],
+        left_on=['origin_airport', 'scheduled_departure'],
+        right_on=['airport_code', 'measurement_time'],
+        how='left'
+    )
+    
+    # Calculate rolling window congestion (last 2 hours)
+    df['flights_per_hour_origin'] = df.groupby('origin_airport')['flight_id'].transform(
+        lambda x: x.rolling(window='2H').count()
+    )
+    
+    df['runway_capacity_utilization'] = df['airport_traffic_index'] * 100  # Scale 0-100
+    
+    # Destination airport congestion (incoming traffic)
+    df = df.merge(
+        airport_data[['airport_code', 'total_aircraft_on_ground']],
+        left_on=['destination_airport'],
+        right_on=['airport_code'],
+        how='left'
+    )
+    df.rename(columns={'total_aircraft_on_ground': 'dest_aircraft_on_ground'}, inplace=True)
+    
+    return df
+#Aircraft Rotation Feature
+def create_rotation_features(df, rotation_data):
+    """
+    Aircraft history and turnaround metrics
+    """
+    # Merge previous flight delay
+    df = df.merge(
+        rotation_data[['aircraft_tail_number', 'previous_flight_id', 'turnaround_time_minutes']],
+        on='aircraft_tail_number',
+        how='left'
+    )
+    
+    # Get previous flight delay
+    df['previous_flight_delay'] = df.groupby('aircraft_tail_number')['departure_delay_minutes'].shift(1)
+    df['previous_flight_delay'].fillna(0, inplace=True)
+    
+    # Cumulative delay in last 24 hours
+    df['cumulative_24h_delay'] = df.groupby('aircraft_tail_number')['departure_delay_minutes'].transform(
+        lambda x: x.rolling(window='24H').sum()
+    )
+    
+    # Aircraft age (older = more maintenance delays)
+    df['aircraft_age_squared'] = df['aircraft_age_years'] ** 2
+    
+    # Turnaround time (quick turnarounds = higher delay risk)
+    df['short_turnaround'] = (df['turnaround_time_minutes'] < 30).astype(int)
+    df['medium_turnaround'] = ((df['turnaround_time_minutes'] >= 30) & 
+                               (df['turnaround_time_minutes'] < 90)).astype(int)
+    
+    # Maintenance flag
+    df['maintenance_scheduled'] = rotation_data['maintenance_required'].astype(int)
+    
+    return df
+#Weather Features
+def create_weather_features(df, weather_data):
+    """
+    Integrate real-time weather at departure airport
+    """
+    # Merge weather data from 1 hour before departure
+    weather_data['measurement_time_rounded'] = weather_data['measurement_time'].dt.floor('H')
+    df['scheduled_departure_hour'] = df['scheduled_departure'].dt.floor('H')
+    
+    df = df.merge(
+        weather_data[['airport_code', 'measurement_time_rounded', 'visibility_km', 
+                     'wind_speed_kmh', 'precipitation_mm', 'storm_indicator']],
+        left_on=['origin_airport', 'scheduled_departure_hour'],
+        right_on=['airport_code', 'measurement_time_rounded'],
+        how='left'
+    )
+    
+    # Weather severity index (composite)
+    df['weather_severity'] = (
+        (df['visibility_km'] < 5).astype(int) * 2 +  # Low visibility
+        (df['wind_speed_kmh'] > 30).astype(int) * 1.5 +  # Strong wind
+        (df['precipitation_mm'] > 5).astype(int) * 1 +  # Heavy rain
+        df['storm_indicator'].astype(int) * 3  # Storm
+    )
+    
+    # Normalize weather severity
+    df['weather_severity_normalized'] = df['weather_severity'] / df['weather_severity'].max()
+    
+    # Wind direction relative to runway (simplified)
+    df['wind_headwind_component'] = np.abs(df['wind_direction_deg'] % 180 - 90) / 90
+    
+    return df
+#Route Based Feature
+def create_route_features(df, historical_route_data):
+    """
+    Route-specific delay patterns
+    """
+    # Historical average delay by route
+    route_stats = df.groupby('origin_airport_destination_airport').agg({
+        'departure_delay_minutes': ['mean', 'std', 'median'],
+        'flight_id': 'count'
+    }).reset_index()
+    route_stats.columns = ['route', 'route_avg_delay', 'route_delay_std', 
+                           'route_median_delay', 'route_flight_count']
+    
+    df['route'] = df['origin_airport'] + '_' + df['destination_airport']
+    df = df.merge(route_stats, on='route', how='left')
+    
+    # Distance buckets (distance affects delay patterns)
+    df['distance_bucket'] = pd.cut(df['route_distance_km'], 
+                                    bins=[0, 500, 1000, 2000, 5000],
+                                    labels=['short', 'medium', 'long', 'ultra_long'])
+    
+    # Hub indicator (flights from major hubs: Karachi, Lahore, Islamabad)
+    major_hubs = ['KHI', 'LHE', 'ISB']
+    df['is_origin_hub'] = df['origin_airport'].isin(major_hubs).astype(int)
+    df['is_dest_hub'] = df['destination_airport'].isin(major_hubs).astype(int)
+    
+    return df
+#Interaction Feature
+def create_interaction_features(df):
+    """
+    Advanced feature interactions
+    """
+    # Congestion × Peak hour
+    df['peak_congestion'] = df['is_peak_hour'] * df['runway_capacity_utilization']
+    
+    # Weather × Distance (long flights more affected by weather)
+    df['weather_distance_interaction'] = df['weather_severity_normalized'] * df['route_distance_km']
+    
+    # Previous delay × Turnaround (tight schedules + previous delay = high risk)
+    df['risk_score'] = df['previous_flight_delay'] * df['short_turnaround']
+    
+    return df
+def build_feature_pipeline(raw_flight_df, weather_df, airport_df, rotation_df):
+    """
+    Complete feature engineering pipeline
+    """
+    df = raw_flight_df.copy()
+    
+    # 1. Time features
+    df = create_time_features(df)
+    
+    # 2. Congestion features
+    df = create_congestion_features(df, airport_df)
+    
+    # 3. Aircraft rotation features
+    df = create_rotation_features(df, rotation_df)
+    
+    # 4. Weather features
+    df = create_weather_features(df, weather_df)
+    
+    # 5. Route features
+    df = create_route_features(df)
+    
+    # 6. Interaction features
+    df = create_interaction_features(df)
+    
+    # 7. Handle missing values
+    df = df.fillna(df.median(numeric_only=True))
+    
+    # 8. Encode categorical variables
+    categorical_cols = df.select_dtypes(include='object').columns
+    for col in categorical_cols:
+        df[col] = pd.factorize(df[col])[0]
+    
+    return df
